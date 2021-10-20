@@ -1,13 +1,13 @@
-# arbitrum-voter
+# optimism-voter
 
-arbitrum voter for polynetwork.
+optimism voter for polynetwork.
 
 ### Build
 
 ```shell
-git clone https://github.com/polynetwork/arbitrum-voter
-cd arbitrum-voter
-go build -o arb_voter main.go
+git clone https://github.com/polynetwork/optimism-voter
+cd optimism-voter
+go build -o opt_voter main.go
 ```
 
 ### Run
@@ -30,11 +30,11 @@ Before running, you need feed the configuration file `config.json`.
         "registerAsset",
         "onCrossTransfer"
     ],
-    "ArbConfig": {
+    "OptConfig": {
         "SideChainId": 19,
         "ECCMContractAddress": "0x7ceA671DABFBa880aF6723bDdd6B9f4caA15C87B",
         "RestURL": [
-            "https://rinkeby.arbitrum.io/rpc"
+            "https://kovan.optimism.io"
         ]
     }
 }
@@ -43,7 +43,7 @@ Before running, you need feed the configuration file `config.json`.
 Now, you can start voter as follow: 
 
 ```shell
-./arb_voter -conf config.json 
+./opt_voter -conf config.json 
 ```
 
 It will generate logs under `./Log` and check relayer status by view log file.

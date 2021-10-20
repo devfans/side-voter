@@ -109,6 +109,7 @@ func (v *Voter) Start(ctx context.Context) {
 				log.Warnf("ethGetCurrentHeight failed:%v", err)
 				continue
 			}
+			log.Infof("current height:%d", height)
 			if height < nextOptHeight+OPT_USEFUL_BLOCK_NUM {
 				continue
 			}
@@ -201,7 +202,7 @@ func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 		}
 	}
 
-	log.Infof("arb height %d empty: %v", height, empty)
+	log.Infof("opt height %d empty: %v", height, empty)
 
 	return
 }

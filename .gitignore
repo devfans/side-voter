@@ -1,5 +1,6 @@
 /Log
 *.dat
 *.json
-db
+/db
 .idea
+opt-voter
