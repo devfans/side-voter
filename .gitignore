@@ -3,4 +3,4 @@
 *.json
 /db
 .idea
-opt-voter
+side-voter

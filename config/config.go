@@ -28,7 +28,7 @@ import (
 type Config struct {
 	sync.Once
 	PolyConfig       PolyConfig
-	OptConfig        OptConfig
+	SideConfig       SideConfig
 	ForceConfig      ForceConfig
 	BoltDbPath       string
 	WhitelistMethods []string
@@ -52,14 +52,14 @@ type PolyConfig struct {
 	WalletPwd  string
 }
 
-type OptConfig struct {
+type SideConfig struct {
 	SideChainId         uint64
 	ECCMContractAddress string
 	RestURL             []string
 }
 
 type ForceConfig struct {
-	OptHeight uint64
+	SideHeight uint64
 }
 
 func LoadConfig(confFile string) (config *Config, err error) {

@@ -1,13 +1,13 @@
-# optimism-voter
+# side-voter
 
-optimism voter for polynetwork.
+side voter for polynetwork.
 
 ### Build
 
 ```shell
-git clone https://github.com/polynetwork/optimism-voter
-cd optimism-voter
-go build -o opt_voter main.go
+git clone https://github.com/polynetwork/side-voter
+cd side-voter
+go build -o side_voter main.go
 ```
 
 ### Run
@@ -30,7 +30,7 @@ Before running, you need feed the configuration file `config.json`.
         "registerAsset",
         "onCrossTransfer"
     ],
-    "OptConfig": {
+    "SideConfig": {
         "SideChainId": 19,
         "ECCMContractAddress": "0x7ceA671DABFBa880aF6723bDdd6B9f4caA15C87B",
         "RestURL": [
@@ -43,7 +43,7 @@ Before running, you need feed the configuration file `config.json`.
 Now, you can start voter as follow: 
 
 ```shell
-./opt_voter -conf config.json 
+./side_voter -conf config.json 
 ```
 
 It will generate logs under `./Log` and check relayer status by view log file.

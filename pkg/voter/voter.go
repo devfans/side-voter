@@ -30,13 +30,13 @@ import (
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/polynetwork/eth-contracts/go_abi/eccm_abi"
-	"github.com/polynetwork/opt-voter/config"
-	"github.com/polynetwork/opt-voter/pkg/db"
-	"github.com/polynetwork/opt-voter/pkg/log"
 	sdk "github.com/polynetwork/poly-go-sdk"
 	"github.com/polynetwork/poly/common"
 	common2 "github.com/polynetwork/poly/native/service/cross_chain_manager/common"
 	autils "github.com/polynetwork/poly/native/service/utils"
+	"github.com/polynetwork/side-voter/config"
+	"github.com/polynetwork/side-voter/pkg/db"
+	"github.com/polynetwork/side-voter/pkg/log"
 )
 
 type Voter struct {
@@ -57,7 +57,7 @@ func New(polySdk *sdk.PolySdk, signer *sdk.Account, conf *config.Config) *Voter 
 func (v *Voter) init() (err error) {
 
 	var clients []*ethclient.Client
-	for _, node := range v.conf.OptConfig.RestURL {
+	for _, node := range v.conf.SideConfig.RestURL {
 		client, err := ethclient.Dial(node)
 		if err != nil {
 			log.Fatalf("ethclient.Dial failed:%v", err)
@@ -74,7 +74,7 @@ func (v *Voter) init() (err error) {
 
 	v.bdb = bdb
 
-	v.contractAddr = ethcommon.HexToAddress(v.conf.OptConfig.ECCMContractAddress)
+	v.contractAddr = ethcommon.HexToAddress(v.conf.SideConfig.ECCMContractAddress)
 	v.contracts = make([]*eccm_abi.EthCrossChainManager, len(clients))
 	for i := 0; i < len(v.clients); i++ {
 		contract, err := eccm_abi.NewEthCrossChainManager(v.contractAddr, v.clients[i])
@@ -95,42 +95,42 @@ func (v *Voter) Start(ctx context.Context) {
 		log.Fatalf("Voter.init failed: %v", err)
 	}
 
-	nextOptHeight := v.bdb.GetOptHeight()
-	if v.conf.ForceConfig.OptHeight > 0 {
-		nextOptHeight = v.conf.ForceConfig.OptHeight
+	nextSideHeight := v.bdb.GetSideHeight()
+	if v.conf.ForceConfig.SideHeight > 0 {
+		nextSideHeight = v.conf.ForceConfig.SideHeight
 	}
 	ticker := time.NewTicker(time.Second * 2)
 	for {
 		select {
 		case <-ticker.C:
 			v.idx = randIdx(len(v.clients))
-			height, err := ethGetCurrentHeight(v.conf.OptConfig.RestURL[v.idx])
+			height, err := ethGetCurrentHeight(v.conf.SideConfig.RestURL[v.idx])
 			if err != nil {
 				log.Warnf("ethGetCurrentHeight failed:%v", err)
 				continue
 			}
 			log.Infof("current height:%d", height)
-			if height < nextOptHeight+OPT_USEFUL_BLOCK_NUM {
+			if height < nextSideHeight+OPT_USEFUL_BLOCK_NUM {
 				continue
 			}
 
-			for nextOptHeight < height-OPT_USEFUL_BLOCK_NUM {
+			for nextSideHeight < height-OPT_USEFUL_BLOCK_NUM {
 				select {
 				case <-ctx.Done():
 					return
 				default:
 				}
-				log.Infof("handling opt height:%d", nextOptHeight)
-				err = v.fetchLockDepositEvents(nextOptHeight)
+				log.Infof("handling side height:%d", nextSideHeight)
+				err = v.fetchLockDepositEvents(nextSideHeight)
 				if err != nil {
 					log.Warnf("fetchLockDepositEvents failed:%v", err)
 					sleep()
 					continue
 				}
-				nextOptHeight++
+				nextSideHeight++
 			}
 
-			err = v.bdb.UpdateOptHeight(nextOptHeight)
+			err = v.bdb.UpdateSideHeight(nextSideHeight)
 			if err != nil {
 				log.Warnf("UpdateArbHeight failed:%v", err)
 			}
@@ -179,7 +179,7 @@ func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 
 		empty = false
 		raw, _ := v.polySdk.GetStorage(autils.CrossChainManagerContractAddress.ToHexString(),
-			append(append([]byte(common2.DONE_TX), autils.GetUint64Bytes(v.conf.OptConfig.SideChainId)...), param.CrossChainID...))
+			append(append([]byte(common2.DONE_TX), autils.GetUint64Bytes(v.conf.SideConfig.SideChainId)...), param.CrossChainID...))
 		if len(raw) != 0 {
 			log.Infof("fetchLockDepositEvents - ccid %s (tx_hash: %s) already on poly",
 				hex.EncodeToString(param.CrossChainID), evt.Raw.TxHash.Hex())
@@ -202,7 +202,7 @@ func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 		}
 	}
 
-	log.Infof("opt height %d empty: %v", height, empty)
+	log.Infof("side height %d empty: %v", height, empty)
 
 	return
 }
@@ -210,7 +210,7 @@ func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 func (v *Voter) commitVote(height uint32, value []byte, txhash []byte) (string, error) {
 	log.Infof("commitVote, height: %d, value: %s, txhash: %s", height, hex.EncodeToString(value), hex.EncodeToString(txhash))
 	tx, err := v.polySdk.Native.Ccm.ImportOuterTransfer(
-		v.conf.OptConfig.SideChainId,
+		v.conf.SideConfig.SideChainId,
 		value,
 		height,
 		nil,

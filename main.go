@@ -27,18 +27,18 @@ import (
 	"syscall"
 
 	"github.com/howeyc/gopass"
-	"github.com/polynetwork/opt-voter/config"
-	"github.com/polynetwork/opt-voter/pkg/log"
-	"github.com/polynetwork/opt-voter/pkg/voter"
 	sdk "github.com/polynetwork/poly-go-sdk"
+	"github.com/polynetwork/side-voter/config"
+	"github.com/polynetwork/side-voter/pkg/log"
+	"github.com/polynetwork/side-voter/pkg/voter"
 )
 
 var confFile string
-var optHeight uint64
+var sideHeight uint64
 
 func init() {
 	flag.StringVar(&confFile, "conf", "./config.json", "configuration file path")
-	flag.Uint64Var(&optHeight, "opt", 0, "specify opt start height")
+	flag.Uint64Var(&sideHeight, "side", 0, "specify side start height")
 	flag.Parse()
 }
 
@@ -59,8 +59,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("LoadConfig fail:%v", err)
 	}
-	if optHeight > 0 {
-		conf.ForceConfig.OptHeight = optHeight
+	if sideHeight > 0 {
+		conf.ForceConfig.SideHeight = sideHeight
 	}
 
 	polySdk := sdk.NewPolySdk()

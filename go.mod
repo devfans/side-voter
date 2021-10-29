@@ -1,4 +1,4 @@
-module github.com/polynetwork/opt-voter
+module github.com/polynetwork/side-voter
 
 go 1.17
 
