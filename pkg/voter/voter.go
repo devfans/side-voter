@@ -22,6 +22,8 @@ package voter
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
+	"github.com/polynetwork/poly/core/types"
 	"math/big"
 	"math/rand"
 	"time"
@@ -55,6 +57,9 @@ func New(polySdk *sdk.PolySdk, signer *sdk.Account, conf *config.Config) *Voter 
 }
 
 func (v *Voter) init() (err error) {
+	if v.conf.SideConfig.BlocksToWait > SIDE_USEFUL_BLOCK_NUM {
+		SIDE_USEFUL_BLOCK_NUM = v.conf.SideConfig.BlocksToWait
+	}
 
 	var clients []*ethclient.Client
 	for _, node := range v.conf.SideConfig.RestURL {
@@ -87,7 +92,7 @@ func (v *Voter) init() (err error) {
 	return
 }
 
-const OPT_USEFUL_BLOCK_NUM = 1
+var SIDE_USEFUL_BLOCK_NUM = uint64(1)
 
 func (v *Voter) Start(ctx context.Context) {
 	err := v.init()
@@ -110,11 +115,11 @@ func (v *Voter) Start(ctx context.Context) {
 				continue
 			}
 			log.Infof("current height:%d", height)
-			if height < nextSideHeight+OPT_USEFUL_BLOCK_NUM {
+			if height < nextSideHeight+SIDE_USEFUL_BLOCK_NUM {
 				continue
 			}
 
-			for nextSideHeight < height-OPT_USEFUL_BLOCK_NUM {
+			for nextSideHeight < height-SIDE_USEFUL_BLOCK_NUM {
 				select {
 				case <-ctx.Done():
 					return
@@ -196,9 +201,16 @@ func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 			height:  height,
 		}
 
-		_, err = v.commitVote(uint32(height), crossTx.value, crossTx.txId)
+		var txHash string
+		txHash, err = v.commitVote(uint32(height), crossTx.value, crossTx.txId)
 		if err != nil {
 			log.Errorf("commitVote failed:%v", err)
+			return
+		}
+		err = v.waitTx(txHash)
+		if err != nil {
+			log.Errorf("waitTx failed:%v", err)
+			return
 		}
 	}
 
@@ -223,6 +235,23 @@ func (v *Voter) commitVote(height uint32, value []byte, txhash []byte) (string, 
 		log.Infof("commitVote - send transaction to poly chain: ( poly_txhash: %s, eth_txhash: %s, height: %d )",
 			tx.ToHexString(), ethcommon.BytesToHash(txhash).String(), height)
 		return tx.ToHexString(), nil
+	}
+}
+
+func (v *Voter) waitTx(txHash string) (err error) {
+	start := time.Now()
+	var tx *types.Transaction
+	for {
+		tx, err = v.polySdk.GetTransaction(txHash)
+		if tx == nil || err != nil {
+			if time.Since(start) > time.Minute*5 {
+				err = fmt.Errorf("waitTx timeout")
+				return
+			}
+			time.Sleep(time.Second)
+			continue
+		}
+		return
 	}
 }
 

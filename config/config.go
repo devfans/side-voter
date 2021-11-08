@@ -56,6 +56,7 @@ type SideConfig struct {
 	SideChainId         uint64
 	ECCMContractAddress string
 	RestURL             []string
+	BlocksToWait        uint64
 }
 
 type ForceConfig struct {
