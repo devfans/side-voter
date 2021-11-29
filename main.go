@@ -22,12 +22,9 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"os/signal"
 	"syscall"
 
-	"github.com/howeyc/gopass"
-	sdk "github.com/polynetwork/poly-go-sdk"
 	"github.com/polynetwork/side-voter/config"
 	"github.com/polynetwork/side-voter/pkg/log"
 	"github.com/polynetwork/side-voter/pkg/voter"
@@ -42,16 +39,6 @@ func init() {
 	flag.Parse()
 }
 
-func setUpPoly(polySdk *sdk.PolySdk, rpcAddr string) error {
-	polySdk.NewRpcClient().SetAddress(rpcAddr)
-	hdr, err := polySdk.GetHeaderByHeight(0)
-	if err != nil {
-		return err
-	}
-	polySdk.SetChainId(hdr.ChainID)
-	return nil
-}
-
 func main() {
 	log.InitLog(log.InfoLog, "./Log/", log.Stdout)
 
@@ -63,31 +50,7 @@ func main() {
 		conf.ForceConfig.SideHeight = sideHeight
 	}
 
-	polySdk := sdk.NewPolySdk()
-	err = setUpPoly(polySdk, conf.PolyConfig.RestURL)
-	if err != nil {
-		log.Fatalf("setUpPoly failed: %v", err)
-	}
-	wallet, err := polySdk.OpenWallet(conf.PolyConfig.WalletFile)
-	if err != nil {
-		log.Fatalf("polySdk.OpenWallet failed: %v", err)
-	}
-	pass := []byte(conf.PolyConfig.WalletPwd)
-	if len(pass) == 0 {
-		fmt.Print("Enter Password: ")
-		pass, err = gopass.GetPasswd()
-		if err != nil {
-			log.Fatalf("gopass.GetPasswd failed: %v", err)
-		}
-	}
-
-	signer, err := wallet.GetDefaultAccount(pass)
-	if err != nil {
-		log.Fatalf("wallet.GetDefaultAccount failed: %v", err)
-	}
-
-	log.Infof("voter %s", signer.Address.ToBase58())
-	v := voter.New(polySdk, signer, conf)
+	v := voter.New(conf)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

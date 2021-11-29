@@ -27,7 +27,7 @@ import (
 
 type Config struct {
 	sync.Once
-	PolyConfig       PolyConfig
+	ZionConfig       ZionConfig
 	SideConfig       SideConfig
 	ForceConfig      ForceConfig
 	BoltDbPath       string
@@ -46,10 +46,10 @@ func (c *Config) IsWhitelistMethod(method string) bool {
 	return c.whitelistMethods[method]
 }
 
-type PolyConfig struct {
-	RestURL    string
-	WalletFile string
-	WalletPwd  string
+type ZionConfig struct {
+	RestURL        []string
+	KeyStorePath   string
+	KeyStorePwdSet map[string]string
 }
 
 type SideConfig struct {

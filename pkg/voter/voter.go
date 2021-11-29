@@ -23,40 +23,46 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"github.com/polynetwork/poly/core/types"
 	"math/big"
 	"math/rand"
+	"os"
+	"strings"
 	"time"
 
+	"github.com/KSlashh/poly-abi/abi_1.9.25/ccm"
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common"
+	common2 "github.com/ethereum/go-ethereum/contracts/native/cross_chain_manager/common"
+	"github.com/ethereum/go-ethereum/contracts/native/go_abi/cross_chain_manager_abi"
+	"github.com/ethereum/go-ethereum/contracts/native/utils"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/polynetwork/eth-contracts/go_abi/eccm_abi"
-	sdk "github.com/polynetwork/poly-go-sdk"
-	"github.com/polynetwork/poly/common"
-	common2 "github.com/polynetwork/poly/native/service/cross_chain_manager/common"
-	autils "github.com/polynetwork/poly/native/service/utils"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/polynetwork/side-voter/config"
 	"github.com/polynetwork/side-voter/pkg/db"
 	"github.com/polynetwork/side-voter/pkg/log"
 )
 
 type Voter struct {
-	polySdk      *sdk.PolySdk
-	signer       *sdk.Account
+	ks           *EthKeyStore
 	conf         *config.Config
 	clients      []*ethclient.Client
+	zionClients  []*ethclient.Client
 	bdb          *db.BoltDB
-	contracts    []*eccm_abi.EthCrossChainManager
-	contractAddr ethcommon.Address
+	contracts    []*ccm.EthCrossChainManagerImplemetation
+	contractAddr common.Address
 	idx          int
+	zidx         int
 }
 
-func New(polySdk *sdk.PolySdk, signer *sdk.Account, conf *config.Config) *Voter {
-	return &Voter{polySdk: polySdk, signer: signer, conf: conf}
+func New(conf *config.Config) *Voter {
+	return &Voter{conf: conf}
 }
 
-func (v *Voter) init() (err error) {
+func (v *Voter) init() error {
 	if v.conf.SideConfig.BlocksToWait > SIDE_USEFUL_BLOCK_NUM {
 		SIDE_USEFUL_BLOCK_NUM = v.conf.SideConfig.BlocksToWait
 	}
@@ -65,31 +71,61 @@ func (v *Voter) init() (err error) {
 	for _, node := range v.conf.SideConfig.RestURL {
 		client, err := ethclient.Dial(node)
 		if err != nil {
-			log.Fatalf("ethclient.Dial failed:%v", err)
+			log.Fatalf("side ethclient.Dial failed:%v", err)
 		}
 
 		clients = append(clients, client)
 	}
 	v.clients = clients
 
+	var zionClients []*ethclient.Client
+	for _, node := range v.conf.ZionConfig.RestURL {
+		client, err := ethclient.Dial(node)
+		if err != nil {
+			log.Fatalf("zion ethclient.Dial failed:%v", err)
+		}
+
+		zionClients = append(zionClients, client)
+	}
+	v.zionClients = zionClients
+
+	start := time.Now()
+	chainID, err := zionClients[0].ChainID(context.Background())
+	if err != nil {
+		log.Fatalf("zionClients[0].ChainID failed:%v", err)
+	}
+	log.Infof("ChainID() took %v", time.Now().Sub(start).String())
+
+	ks := NewEthKeyStore(v.conf.ZionConfig.KeyStorePath, v.conf.ZionConfig.KeyStorePwdSet, chainID)
+	v.ks = ks
+
+	// check
+	path := v.conf.BoltDbPath
+	if _, err := os.Stat(path); err != nil {
+		log.Infof("db path not exists: %s, make dir", path)
+		err := os.MkdirAll(path, 0711)
+		if err != nil {
+			return err
+		}
+	}
 	bdb, err := db.NewBoltDB(v.conf.BoltDbPath)
 	if err != nil {
-		return
+		return err
 	}
 
 	v.bdb = bdb
 
-	v.contractAddr = ethcommon.HexToAddress(v.conf.SideConfig.ECCMContractAddress)
-	v.contracts = make([]*eccm_abi.EthCrossChainManager, len(clients))
+	v.contractAddr = common.HexToAddress(v.conf.SideConfig.ECCMContractAddress)
+	v.contracts = make([]*ccm.EthCrossChainManagerImplemetation, len(clients))
 	for i := 0; i < len(v.clients); i++ {
-		contract, err := eccm_abi.NewEthCrossChainManager(v.contractAddr, v.clients[i])
+		contract, err := ccm.NewEthCrossChainManagerImplemetation(v.contractAddr, v.clients[i])
 		if err != nil {
 			return err
 		}
 		v.contracts[i] = contract
 	}
 
-	return
+	return nil
 }
 
 var SIDE_USEFUL_BLOCK_NUM = uint64(1)
@@ -157,6 +193,7 @@ type CrossTransfer struct {
 
 func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 	contract := v.contracts[v.idx]
+	v.zidx = randIdx(len(v.zionClients))
 
 	opt := &bind.FilterOpts{
 		Start:   height,
@@ -176,15 +213,23 @@ func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 			continue
 		}
 		param := &common2.MakeTxParam{}
-		_ = param.Deserialization(common.NewZeroCopySource([]byte(evt.Rawdata)))
+		err = rlp.DecodeBytes(evt.Rawdata, param)
+		if err != nil {
+			log.Errorf("MakeTxParam decode error: %s", err)
+			continue
+		}
 		if !v.conf.IsWhitelistMethod(param.Method) {
 			log.Warnf("target contract method invalid %s, height: %d", param.Method, height)
 			continue
 		}
 
 		empty = false
-		raw, _ := v.polySdk.GetStorage(autils.CrossChainManagerContractAddress.ToHexString(),
-			append(append([]byte(common2.DONE_TX), autils.GetUint64Bytes(v.conf.SideConfig.SideChainId)...), param.CrossChainID...))
+		duration := time.Second * 30
+		timerCtx, cancelFunc := context.WithTimeout(context.Background(), duration)
+		defer cancelFunc()
+		key := crypto.Keccak256(append(append([]byte(common2.DONE_TX), utils.GetUint64Bytes(v.conf.SideConfig.SideChainId)...), param.CrossChainID...))
+		raw, _ := v.clients[v.zidx].StorageAt(timerCtx, utils.CrossChainManagerContractAddress,
+			common.BytesToHash(key), nil)
 		if len(raw) != 0 {
 			log.Infof("fetchLockDepositEvents - ccid %s (tx_hash: %s) already on poly",
 				hex.EncodeToString(param.CrossChainID), evt.Raw.TxHash.Hex())
@@ -221,37 +266,76 @@ func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 
 func (v *Voter) commitVote(height uint32, value []byte, txhash []byte) (string, error) {
 	log.Infof("commitVote, height: %d, value: %s, txhash: %s", height, hex.EncodeToString(value), hex.EncodeToString(txhash))
-	tx, err := v.polySdk.Native.Ccm.ImportOuterTransfer(
-		v.conf.SideConfig.SideChainId,
-		value,
-		height,
-		nil,
-		v.signer.Address[:],
-		[]byte{},
-		v.signer)
+
+	duration := time.Second * 30
+	timerCtx, cancelFunc := context.WithTimeout(context.Background(), duration)
+	defer cancelFunc()
+	client := v.zionClients[v.zidx]
+	gasPrice, err := client.SuggestGasPrice(timerCtx)
 	if err != nil {
-		return "", err
-	} else {
-		log.Infof("commitVote - send transaction to poly chain: ( poly_txhash: %s, eth_txhash: %s, height: %d )",
-			tx.ToHexString(), ethcommon.BytesToHash(txhash).String(), height)
-		return tx.ToHexString(), nil
+		return "", fmt.Errorf("commitVote, SuggestGasPrice failed:%v", err)
 	}
+	ccmAbi, err := abi.JSON(strings.NewReader(cross_chain_manager_abi.CrossChainManagerABI))
+	if err != nil {
+		return "", fmt.Errorf("commitVote, abi.JSON error:" + err.Error())
+	}
+	txData, err := ccmAbi.Pack("importOuterTransfer", v.conf.SideConfig.SideChainId, height, nil, nil, nil, nil)
+	if err != nil {
+		panic(fmt.Errorf("commitVote, scmAbi.Pack error:" + err.Error()))
+	}
+	callMsg := ethereum.CallMsg{
+		From: v.ks.GetAccounts()[0].Address, To: &utils.CrossChainManagerContractAddress, Gas: 0, GasPrice: gasPrice,
+		Value: big.NewInt(0), Data: txData,
+	}
+	gasLimit, err := client.EstimateGas(timerCtx, callMsg)
+	if err != nil {
+		return "", fmt.Errorf("commitVote, client.EstimateGas failed:%v", err)
+	}
+
+	nonce := v.getNonce(v.ks.GetAccounts()[0].Address)
+	tx := types.NewTx(&types.LegacyTx{Nonce: nonce, GasPrice: gasPrice, Gas: gasLimit, To: &utils.CrossChainManagerContractAddress, Value: big.NewInt(0), Data: txData})
+	signedtx, err := v.ks.SignTransaction(tx, v.ks.GetAccounts()[0])
+	if err != nil {
+		return "", fmt.Errorf("commitVote, SignTransaction failed:%v", err)
+	}
+	err = client.SendTransaction(timerCtx, signedtx)
+	if err != nil {
+		return "", fmt.Errorf("commitVote, SendTransaction failed:%v", err)
+	}
+	h := signedtx.Hash()
+	log.Infof("commitVote - send transaction to zion chain: ( zion_txhash: %s, side_txhash: %s, height: %d )",
+		h.Hex(), common.BytesToHash(txhash).String(), height)
+	return h.Hex(), nil
 }
 
-func (v *Voter) waitTx(txHash string) (err error) {
+func (v *Voter) waitTx(txHash string) error {
 	start := time.Now()
-	var tx *types.Transaction
 	for {
-		tx, err = v.polySdk.GetTransaction(txHash)
-		if tx == nil || err != nil {
+		duration := time.Second * 30
+		timerCtx, cancelFunc := context.WithTimeout(context.Background(), duration)
+		receipt, err := v.zionClients[v.zidx].TransactionReceipt(timerCtx, common.HexToHash(txHash))
+		cancelFunc()
+		if receipt == nil || err != nil {
 			if time.Since(start) > time.Minute*5 {
 				err = fmt.Errorf("waitTx timeout")
-				return
+				return err
 			}
 			time.Sleep(time.Second)
 			continue
 		}
-		return
+		return nil
+	}
+}
+
+func (v *Voter) getNonce(addr common.Address) uint64 {
+	for {
+		nonce, err := v.zionClients[v.zidx].NonceAt(context.Background(), addr, nil)
+		if err != nil {
+			log.Errorf("NonceAt failed:%v", err)
+			sleep()
+			continue
+		}
+		return nonce
 	}
 }
 
