@@ -47,9 +47,8 @@ func (c *Config) IsWhitelistMethod(method string) bool {
 }
 
 type ZionConfig struct {
-	RestURL        []string
-	KeyStorePath   string
-	KeyStorePwdSet map[string]string
+	RestURL     []string
+	NodeKeyList []string
 }
 
 type SideConfig struct {

@@ -47,7 +47,7 @@ import (
 )
 
 type Voter struct {
-	ks           *EthKeyStore
+	signers      []*ZionSigner
 	conf         *config.Config
 	clients      []*ethclient.Client
 	zionClients  []*ethclient.Client
@@ -56,6 +56,7 @@ type Voter struct {
 	contractAddr common.Address
 	idx          int
 	zidx         int
+	chainID      *big.Int
 }
 
 func New(conf *config.Config) *Voter {
@@ -94,10 +95,18 @@ func (v *Voter) init() error {
 	if err != nil {
 		log.Fatalf("zionClients[0].ChainID failed:%v", err)
 	}
+	v.chainID = chainID
 	log.Infof("ChainID() took %v", time.Now().Sub(start).String())
 
-	ks := NewEthKeyStore(v.conf.ZionConfig.KeyStorePath, v.conf.ZionConfig.KeyStorePwdSet, chainID)
-	v.ks = ks
+	signerArr := make([]*ZionSigner, 0)
+	for _, nodeKey := range v.conf.ZionConfig.NodeKeyList {
+		signer, err := NewZionSigner(nodeKey)
+		if err != nil {
+			panic(err)
+		}
+		signerArr = append(signerArr, signer)
+	}
+	v.signers = signerArr
 
 	// check
 	path := v.conf.BoltDbPath
@@ -191,7 +200,7 @@ type CrossTransfer struct {
 	height  uint64
 }
 
-func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
+func (v *Voter) fetchLockDepositEvents(height uint64) error {
 	contract := v.contracts[v.idx]
 	v.zidx = randIdx(len(v.zionClients))
 
@@ -202,7 +211,7 @@ func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 	}
 	events, err := contract.FilterCrossChainEvent(opt, nil)
 	if err != nil {
-		return
+		return err
 	}
 
 	empty := true
@@ -246,25 +255,20 @@ func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 			height:  height,
 		}
 
-		var txHash string
-		txHash, err = v.commitVote(uint32(height), crossTx.value, crossTx.txId)
+		txs, err := v.commitVote(uint32(height), crossTx.value, crossTx.txId)
 		if err != nil {
-			log.Errorf("commitVote failed:%v", err)
-			return
+			return fmt.Errorf("commitVote failed:%v", err)
 		}
-		err = v.waitTx(txHash)
+		err = v.waitTxs(txs)
 		if err != nil {
-			log.Errorf("waitTx failed:%v", err)
-			return
+			return fmt.Errorf("waitTxs failed:%v", err)
 		}
 	}
-
 	log.Infof("side height %d empty: %v", height, empty)
-
-	return
+	return nil
 }
 
-func (v *Voter) commitVote(height uint32, value []byte, txhash []byte) (string, error) {
+func (v *Voter) commitVote(height uint32, value []byte, txhash []byte) ([]string, error) {
 	log.Infof("commitVote, height: %d, value: %s, txhash: %s", height, hex.EncodeToString(value), hex.EncodeToString(txhash))
 
 	duration := time.Second * 30
@@ -273,58 +277,67 @@ func (v *Voter) commitVote(height uint32, value []byte, txhash []byte) (string, 
 	client := v.zionClients[v.zidx]
 	gasPrice, err := client.SuggestGasPrice(timerCtx)
 	if err != nil {
-		return "", fmt.Errorf("commitVote, SuggestGasPrice failed:%v", err)
+		return nil, fmt.Errorf("commitVote, SuggestGasPrice failed:%v", err)
 	}
 	ccmAbi, err := abi.JSON(strings.NewReader(cross_chain_manager_abi.CrossChainManagerABI))
 	if err != nil {
-		return "", fmt.Errorf("commitVote, abi.JSON error:" + err.Error())
+		return nil, fmt.Errorf("commitVote, abi.JSON error:" + err.Error())
 	}
 	txData, err := ccmAbi.Pack("importOuterTransfer", v.conf.SideConfig.SideChainId, height, nil, nil, nil, nil)
 	if err != nil {
 		panic(fmt.Errorf("commitVote, scmAbi.Pack error:" + err.Error()))
 	}
-	callMsg := ethereum.CallMsg{
-		From: v.ks.GetAccounts()[0].Address, To: &utils.CrossChainManagerContractAddress, Gas: 0, GasPrice: gasPrice,
-		Value: big.NewInt(0), Data: txData,
-	}
-	gasLimit, err := client.EstimateGas(timerCtx, callMsg)
-	if err != nil {
-		return "", fmt.Errorf("commitVote, client.EstimateGas failed:%v", err)
-	}
-
-	nonce := v.getNonce(v.ks.GetAccounts()[0].Address)
-	tx := types.NewTx(&types.LegacyTx{Nonce: nonce, GasPrice: gasPrice, Gas: gasLimit, To: &utils.CrossChainManagerContractAddress, Value: big.NewInt(0), Data: txData})
-	signedtx, err := v.ks.SignTransaction(tx, v.ks.GetAccounts()[0])
-	if err != nil {
-		return "", fmt.Errorf("commitVote, SignTransaction failed:%v", err)
-	}
-	err = client.SendTransaction(timerCtx, signedtx)
-	if err != nil {
-		return "", fmt.Errorf("commitVote, SendTransaction failed:%v", err)
-	}
-	h := signedtx.Hash()
-	log.Infof("commitVote - send transaction to zion chain: ( zion_txhash: %s, side_txhash: %s, height: %d )",
-		h.Hex(), common.BytesToHash(txhash).String(), height)
-	return h.Hex(), nil
-}
-
-func (v *Voter) waitTx(txHash string) error {
-	start := time.Now()
-	for {
-		duration := time.Second * 30
-		timerCtx, cancelFunc := context.WithTimeout(context.Background(), duration)
-		receipt, err := v.zionClients[v.zidx].TransactionReceipt(timerCtx, common.HexToHash(txHash))
-		cancelFunc()
-		if receipt == nil || err != nil {
-			if time.Since(start) > time.Minute*5 {
-				err = fmt.Errorf("waitTx timeout")
-				return err
-			}
-			time.Sleep(time.Second)
+	var txs []string
+	for _, signer := range v.signers {
+		callMsg := ethereum.CallMsg{
+			From: signer.Address, To: &utils.CrossChainManagerContractAddress, Gas: 0, GasPrice: gasPrice,
+			Value: big.NewInt(0), Data: txData,
+		}
+		gasLimit, err := client.EstimateGas(timerCtx, callMsg)
+		if err != nil {
+			log.Errorf("commitVote, client.EstimateGas failed:%v", err)
 			continue
 		}
-		return nil
+
+		nonce := v.getNonce(signer.Address)
+		tx := types.NewTx(&types.LegacyTx{Nonce: nonce, GasPrice: gasPrice, Gas: gasLimit, To: &utils.CrossChainManagerContractAddress, Value: big.NewInt(0), Data: txData})
+		s := types.LatestSignerForChainID(v.chainID)
+		signedtx, err := types.SignTx(tx, s, signer.PrivateKey)
+		if err != nil {
+			return nil, fmt.Errorf("commitVote, SignTransaction failed:%v", err)
+		}
+		err = client.SendTransaction(timerCtx, signedtx)
+		if err != nil {
+			return nil, fmt.Errorf("commitVote, SendTransaction failed:%v", err)
+		}
+		h := signedtx.Hash()
+		log.Infof("commitVote - send transaction to zion chain: ( zion_txhash: %s, side_txhash: %s, height: %d )",
+			h.Hex(), common.BytesToHash(txhash).String(), height)
+		txs = append(txs, h.Hex())
 	}
+	return txs, nil
+}
+
+func (v *Voter) waitTxs(txs []string) error {
+	start := time.Now()
+	for _, txHash := range txs {
+		for {
+			duration := time.Second * 30
+			timerCtx, cancelFunc := context.WithTimeout(context.Background(), duration)
+			receipt, err := v.zionClients[v.zidx].TransactionReceipt(timerCtx, common.HexToHash(txHash))
+			cancelFunc()
+			if receipt == nil || err != nil {
+				if time.Since(start) > time.Minute*5 {
+					err = fmt.Errorf("waitTx timeout")
+					return err
+				}
+				time.Sleep(time.Second)
+				continue
+			}
+			break
+		}
+	}
+	return nil
 }
 
 func (v *Voter) getNonce(addr common.Address) uint64 {
