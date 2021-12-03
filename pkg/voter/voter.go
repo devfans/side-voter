@@ -34,12 +34,10 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	common2 "github.com/ethereum/go-ethereum/contracts/native/cross_chain_manager/common"
 	"github.com/ethereum/go-ethereum/contracts/native/go_abi/cross_chain_manager_abi"
 	"github.com/ethereum/go-ethereum/contracts/native/utils"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/polynetwork/side-voter/config"
 	"github.com/polynetwork/side-voter/pkg/db"
@@ -232,18 +230,6 @@ func (v *Voter) fetchLockDepositEvents(height uint64) error {
 		}
 
 		empty = false
-		duration := time.Second * 30
-		timerCtx, cancelFunc := context.WithTimeout(context.Background(), duration)
-		defer cancelFunc()
-		key := crypto.Keccak256(append(append([]byte(common2.DONE_TX), utils.GetUint64Bytes(v.conf.SideConfig.SideChainId)...), param.CrossChainID...))
-		raw, err := v.clients[v.zidx].StorageAt(timerCtx, utils.CrossChainManagerContractAddress,
-			common.BytesToHash(key), nil)
-		if hexutil.Encode(raw) != common.EmptyHash.Hex() {
-			log.Infof("fetchLockDepositEvents - ccid %s (tx_hash: %s) already on poly",
-				hex.EncodeToString(param.CrossChainID), evt.Raw.TxHash.Hex())
-			continue
-		}
-
 		index := big.NewInt(0)
 		index.SetBytes(evt.TxId)
 		crossTx := &CrossTransfer{
@@ -282,7 +268,7 @@ func (v *Voter) commitVote(height uint32, value []byte, txhash []byte) ([]string
 	if err != nil {
 		return nil, fmt.Errorf("commitVote, abi.JSON error:" + err.Error())
 	}
-	txData, err := ccmAbi.Pack("importOuterTransfer", v.conf.SideConfig.SideChainId, height, []byte{}, []byte{}, []byte{}, []byte{})
+	txData, err := ccmAbi.Pack("importOuterTransfer", v.conf.SideConfig.SideChainId, height, []byte{}, []byte{}, value, []byte{})
 	if err != nil {
 		panic(fmt.Errorf("commitVote, scmAbi.Pack error:" + err.Error()))
 	}
