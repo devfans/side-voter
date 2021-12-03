@@ -224,8 +224,7 @@ func (v *Voter) fetchLockDepositEvents(height uint64) error {
 		param := &common2.MakeTxParam{}
 		param, err = common2.DecodeTxParam(evt.Rawdata)
 		if err != nil {
-			log.Errorf("MakeTxParam decode error: %s", err)
-			continue
+			return fmt.Errorf("MakeTxParam decode error: %s", err)
 		}
 		if !v.conf.IsWhitelistMethod(param.Method) {
 			log.Warnf("target contract method invalid %s, height: %d", param.Method, height)
