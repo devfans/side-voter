@@ -88,9 +88,13 @@ func main() {
 
 	log.Infof("voter %s", signer.Address.ToBase58())
 	v := voter.New(polySdk, signer, conf)
+	err = v.Init()
+	if err != nil {
+		log.Fatalf("Voter.init failed: %v", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	v.Start(ctx)
-
+	go v.StartReplenish(ctx)
+	v.StartVoter(ctx)
 }

@@ -61,6 +61,7 @@ type SideConfig struct {
 
 type ForceConfig struct {
 	SideHeight uint64
+	PolyHeight uint64
 }
 
 func LoadConfig(confFile string) (config *Config, err error) {

@@ -56,11 +56,7 @@ func New(polySdk *sdk.PolySdk, signer *sdk.Account, conf *config.Config) *Voter 
 	return &Voter{polySdk: polySdk, signer: signer, conf: conf}
 }
 
-func (v *Voter) init() (err error) {
-	if v.conf.SideConfig.BlocksToWait > SIDE_USEFUL_BLOCK_NUM {
-		SIDE_USEFUL_BLOCK_NUM = v.conf.SideConfig.BlocksToWait
-	}
-
+func (v *Voter) Init() (err error) {
 	var clients []*ethclient.Client
 	for _, node := range v.conf.SideConfig.RestURL {
 		client, err := ethclient.Dial(node)
@@ -92,14 +88,64 @@ func (v *Voter) init() (err error) {
 	return
 }
 
-var SIDE_USEFUL_BLOCK_NUM = uint64(1)
+func (v *Voter) StartReplenish(ctx context.Context) {
+	nextPolyHeight := v.conf.ForceConfig.PolyHeight
+	ticker := time.NewTicker(time.Second * 1)
+	for {
+		select {
+		case <-ticker.C:
+			h, err := v.polySdk.GetCurrentBlockHeight()
+			if err != nil {
+				log.Errorf("v.polySdk.GetCurrentBlockHeight failed:%v", err)
+				continue
+			}
+			height := uint64(h)
+			log.Infof("current poly height:%d", height)
+			if height < nextPolyHeight {
+				continue
+			}
 
-func (v *Voter) Start(ctx context.Context) {
-	err := v.init()
-	if err != nil {
-		log.Fatalf("Voter.init failed: %v", err)
+			for nextPolyHeight <= height {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				log.Infof("handling poly height:%d", nextPolyHeight)
+				events, err := v.polySdk.GetSmartContractEventByBlock(uint32(nextPolyHeight))
+				if err != nil {
+					log.Errorf("poly failed to fetch smart contract events for height %d, err %v", height, err)
+					continue
+				}
+				txHashList := make([]string, 0)
+				for _, event := range events {
+					for _, notify := range event.Notify {
+						if notify.ContractAddress != autils.ReplenishContractAddress.ToHexString() {
+							continue
+						}
+						states, ok := notify.States.([]interface{})
+						if !ok || states[0].(string) != "ReplenishTx" {
+							continue
+						}
+						txHashes := states[1].([]string)
+						txHashList = append(txHashList, txHashes...)
+					}
+				}
+
+				for _, txHash := range txHashList {
+					err = v.fetchLockDepositEventByTxHash(txHash)
+					if err != nil {
+						log.Errorf("fetchLockDepositEventByTxHash failed:%v", err)
+						continue
+					}
+				}
+				nextPolyHeight++
+			}
+		}
 	}
+}
 
+func (v *Voter) StartVoter(ctx context.Context) {
 	nextSideHeight := v.bdb.GetSideHeight()
 	if v.conf.ForceConfig.SideHeight > 0 {
 		nextSideHeight = v.conf.ForceConfig.SideHeight
@@ -111,15 +157,15 @@ func (v *Voter) Start(ctx context.Context) {
 			v.idx = randIdx(len(v.clients))
 			height, err := ethGetCurrentHeight(v.conf.SideConfig.RestURL[v.idx])
 			if err != nil {
-				log.Warnf("ethGetCurrentHeight failed:%v", err)
+				log.Errorf("ethGetCurrentHeight failed:%v", err)
 				continue
 			}
-			log.Infof("current height:%d", height)
-			if height < nextSideHeight+SIDE_USEFUL_BLOCK_NUM {
+			log.Infof("current side height:%d", height)
+			if height < nextSideHeight+v.conf.SideConfig.BlocksToWait {
 				continue
 			}
 
-			for nextSideHeight < height-SIDE_USEFUL_BLOCK_NUM {
+			for nextSideHeight <= height-v.conf.SideConfig.BlocksToWait {
 				select {
 				case <-ctx.Done():
 					return
@@ -128,7 +174,7 @@ func (v *Voter) Start(ctx context.Context) {
 				log.Infof("handling side height:%d", nextSideHeight)
 				err = v.fetchLockDepositEvents(nextSideHeight)
 				if err != nil {
-					log.Warnf("fetchLockDepositEvents failed:%v", err)
+					log.Errorf("fetchLockDepositEvents failed:%v", err)
 					sleep()
 					continue
 				}
@@ -137,7 +183,7 @@ func (v *Voter) Start(ctx context.Context) {
 
 			err = v.bdb.UpdateSideHeight(nextSideHeight)
 			if err != nil {
-				log.Warnf("UpdateArbHeight failed:%v", err)
+				log.Errorf("UpdateSideHeight failed:%v", err)
 			}
 
 		case <-ctx.Done():
@@ -155,7 +201,63 @@ type CrossTransfer struct {
 	height  uint64
 }
 
-func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
+func (v *Voter) fetchLockDepositEventByTxHash(txHash string) error {
+	client := v.clients[v.idx]
+	contract := v.contracts[v.idx]
+	hash := ethcommon.HexToHash(txHash)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	reciept, err := client.TransactionReceipt(ctx, hash)
+	if err != nil {
+		return err
+	}
+	height := reciept.BlockNumber.Uint64()
+
+	for _, l := range reciept.Logs {
+		evt, err := contract.ParseCrossChainEvent(*l)
+		if err != nil {
+			return err
+		}
+		if evt.Raw.Address != v.contractAddr {
+			log.Errorf("event source contract invalid: %s, expect: %s, txHash: %s", evt.Raw.Address.Hex(), v.contractAddr.Hex(), txHash)
+			continue
+		}
+		param := &common2.MakeTxParam{}
+		_ = param.Deserialization(common.NewZeroCopySource([]byte(evt.Rawdata)))
+		if !v.conf.IsWhitelistMethod(param.Method) {
+			log.Errorf("target contract method invalid %s, txHash: %s", param.Method, txHash)
+			continue
+		}
+
+		raw, _ := v.polySdk.GetStorage(autils.CrossChainManagerContractAddress.ToHexString(),
+			append(append([]byte(common2.DONE_TX), autils.GetUint64Bytes(v.conf.SideConfig.SideChainId)...), param.CrossChainID...))
+		if len(raw) != 0 {
+			log.Infof("fetchLockDepositEvents - ccid %s (tx_hash: %s) already on poly",
+				hex.EncodeToString(param.CrossChainID), evt.Raw.TxHash.Hex())
+			continue
+		}
+
+		index := big.NewInt(0)
+		index.SetBytes(evt.TxId)
+		crossTx := &CrossTransfer{
+			txIndex: encodeBigInt(index),
+			txId:    evt.Raw.TxHash.Bytes(),
+			toChain: uint32(evt.ToChainId),
+			value:   []byte(evt.Rawdata),
+			height:  height,
+		}
+
+		txHash, err = v.commitVote(uint32(height), crossTx.value, crossTx.txId)
+		if err != nil {
+			log.Errorf("commitVote failed:%v", err)
+			continue
+		}
+	}
+	return nil
+}
+
+func (v *Voter) fetchLockDepositEvents(height uint64) error {
 	contract := v.contracts[v.idx]
 
 	opt := &bind.FilterOpts{
@@ -165,20 +267,20 @@ func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 	}
 	events, err := contract.FilterCrossChainEvent(opt, nil)
 	if err != nil {
-		return
+		return err
 	}
 
 	empty := true
 	for events.Next() {
 		evt := events.Event
 		if evt.Raw.Address != v.contractAddr {
-			log.Warnf("event source contract invalid: %s, expect: %s, height: %d", evt.Raw.Address.Hex(), v.contractAddr.Hex(), height)
+			log.Errorf("event source contract invalid: %s, expect: %s, height: %d", evt.Raw.Address.Hex(), v.contractAddr.Hex(), height)
 			continue
 		}
 		param := &common2.MakeTxParam{}
 		_ = param.Deserialization(common.NewZeroCopySource([]byte(evt.Rawdata)))
 		if !v.conf.IsWhitelistMethod(param.Method) {
-			log.Warnf("target contract method invalid %s, height: %d", param.Method, height)
+			log.Errorf("target contract method invalid %s, height: %d", param.Method, height)
 			continue
 		}
 
@@ -205,18 +307,18 @@ func (v *Voter) fetchLockDepositEvents(height uint64) (err error) {
 		txHash, err = v.commitVote(uint32(height), crossTx.value, crossTx.txId)
 		if err != nil {
 			log.Errorf("commitVote failed:%v", err)
-			return
+			return err
 		}
 		err = v.waitTx(txHash)
 		if err != nil {
 			log.Errorf("waitTx failed:%v", err)
-			return
+			return err
 		}
 	}
 
 	log.Infof("side height %d empty: %v", height, empty)
 
-	return
+	return nil
 }
 
 func (v *Voter) commitVote(height uint32, value []byte, txhash []byte) (string, error) {
