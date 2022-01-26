@@ -127,8 +127,12 @@ func (v *Voter) StartReplenish(ctx context.Context) {
 						if !ok || states[0].(string) != "ReplenishTx" {
 							continue
 						}
-						txHashes := states[1].([]string)
-						txHashList = append(txHashList, txHashes...)
+
+						chainId := states[2].(uint64)
+						if chainId == v.conf.SideConfig.SideChainId {
+							txHashes := states[1].([]string)
+							txHashList = append(txHashList, txHashes...)
+						}
 					}
 				}
 
