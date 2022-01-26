@@ -7,7 +7,7 @@ require (
 	github.com/ethereum/go-ethereum v1.9.15
 	github.com/howeyc/gopass v0.0.0-20190910152052-7cb4b85ec19c
 	github.com/polynetwork/eth-contracts v0.0.0-20200814062128-70f58e22b014
-	github.com/polynetwork/poly v1.8.2-0.20220125062317-fd12488a3dab
+	github.com/polynetwork/poly v1.8.3-0.20220126074829-cbad4f404106
 	github.com/polynetwork/poly-go-sdk v0.0.0-20210114120411-3dcba035134f
 )
 
