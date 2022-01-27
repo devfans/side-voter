@@ -165,11 +165,11 @@ func (v *Voter) StartVoter(ctx context.Context) {
 				continue
 			}
 			log.Infof("current side height:%d", height)
-			if height < nextSideHeight+v.conf.SideConfig.BlocksToWait {
+			if height < nextSideHeight+v.conf.SideConfig.BlocksToWait+1 {
 				continue
 			}
 
-			for nextSideHeight <= height-v.conf.SideConfig.BlocksToWait {
+			for nextSideHeight < height-v.conf.SideConfig.BlocksToWait-1 {
 				select {
 				case <-ctx.Done():
 					return
@@ -224,7 +224,7 @@ func (v *Voter) fetchLockDepositEventByTxHash(txHash string) error {
 			continue
 		}
 		if l.Address != v.contractAddr {
-			log.Errorf("event source contract invalid: %s, expect: %s, txHash: %s", evt.Raw.Address.Hex(), v.contractAddr.Hex(), txHash)
+			log.Errorf("event source contract invalid: %s, expect: %s, txHash: %s", l.Address.Hex(), v.contractAddr.Hex(), txHash)
 			continue
 		}
 		param := &common2.MakeTxParam{}
@@ -237,8 +237,8 @@ func (v *Voter) fetchLockDepositEventByTxHash(txHash string) error {
 		raw, _ := v.polySdk.GetStorage(autils.CrossChainManagerContractAddress.ToHexString(),
 			append(append([]byte(common2.DONE_TX), autils.GetUint64Bytes(v.conf.SideConfig.SideChainId)...), param.CrossChainID...))
 		if len(raw) != 0 {
-			log.Infof("fetchLockDepositEvents - ccid %s (tx_hash: %s) already on poly",
-				hex.EncodeToString(param.CrossChainID), evt.Raw.TxHash.Hex())
+			log.Infof("fetchLockDepositEventByTxHash - ccid %s (tx_hash: %s) already on poly",
+				hex.EncodeToString(param.CrossChainID), l.TxHash.Hex())
 			continue
 		}
 
@@ -246,7 +246,7 @@ func (v *Voter) fetchLockDepositEventByTxHash(txHash string) error {
 		index.SetBytes(evt.TxId)
 		crossTx := &CrossTransfer{
 			txIndex: encodeBigInt(index),
-			txId:    evt.Raw.TxHash.Bytes(),
+			txId:    l.TxHash.Bytes(),
 			toChain: uint32(evt.ToChainId),
 			value:   []byte(evt.Rawdata),
 			height:  height,
