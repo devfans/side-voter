@@ -7,7 +7,7 @@ side voter for polynetwork.
 ```shell
 git clone https://github.com/polynetwork/side-voter
 cd side-voter
-go build -o side_voter main.go
+make clean && make
 ```
 
 ### Run
