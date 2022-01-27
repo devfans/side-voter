@@ -58,6 +58,7 @@ func main() {
 	conf, err := config.LoadConfig(confFile)
 	if err != nil {
 		log.Fatalf("LoadConfig fail:%v", err)
+		return
 	}
 	if sideHeight > 0 {
 		conf.ForceConfig.SideHeight = sideHeight
@@ -67,10 +68,12 @@ func main() {
 	err = setUpPoly(polySdk, conf.PolyConfig.RestURL)
 	if err != nil {
 		log.Fatalf("setUpPoly failed: %v", err)
+		return
 	}
 	wallet, err := polySdk.OpenWallet(conf.PolyConfig.WalletFile)
 	if err != nil {
 		log.Fatalf("polySdk.OpenWallet failed: %v", err)
+		return
 	}
 	pass := []byte(conf.PolyConfig.WalletPwd)
 	if len(pass) == 0 {
@@ -78,12 +81,14 @@ func main() {
 		pass, err = gopass.GetPasswd()
 		if err != nil {
 			log.Fatalf("gopass.GetPasswd failed: %v", err)
+			return
 		}
 	}
 
 	signer, err := wallet.GetDefaultAccount(pass)
 	if err != nil {
 		log.Fatalf("wallet.GetDefaultAccount failed: %v", err)
+		return
 	}
 
 	log.Infof("voter %s", signer.Address.ToBase58())
@@ -91,6 +96,7 @@ func main() {
 	err = v.Init()
 	if err != nil {
 		log.Fatalf("Voter.init failed: %v", err)
+		return
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

@@ -117,7 +117,7 @@ func (v *Voter) StartReplenish(ctx context.Context) {
 					log.Errorf("poly failed to fetch smart contract events for height %d, err %v", height, err)
 					continue
 				}
-				txHashList := make([]string, 0)
+				txHashList := make([]interface{}, 0)
 				for _, event := range events {
 					for _, notify := range event.Notify {
 						if notify.ContractAddress != autils.ReplenishContractAddress.ToHexString() {
@@ -128,16 +128,16 @@ func (v *Voter) StartReplenish(ctx context.Context) {
 							continue
 						}
 
-						chainId := states[2].(uint64)
-						if chainId == v.conf.SideConfig.SideChainId {
-							txHashes := states[1].([]string)
+						chainId := states[2].(float64)
+						if uint64(chainId) == v.conf.SideConfig.SideChainId {
+							txHashes := states[1].([]interface{})
 							txHashList = append(txHashList, txHashes...)
 						}
 					}
 				}
 
 				for _, txHash := range txHashList {
-					err = v.fetchLockDepositEventByTxHash(txHash)
+					err = v.fetchLockDepositEventByTxHash(txHash.(string))
 					if err != nil {
 						log.Errorf("fetchLockDepositEventByTxHash failed:%v", err)
 						continue
@@ -221,9 +221,9 @@ func (v *Voter) fetchLockDepositEventByTxHash(txHash string) error {
 	for _, l := range reciept.Logs {
 		evt, err := contract.ParseCrossChainEvent(*l)
 		if err != nil {
-			return err
+			continue
 		}
-		if evt.Raw.Address != v.contractAddr {
+		if l.Address != v.contractAddr {
 			log.Errorf("event source contract invalid: %s, expect: %s, txHash: %s", evt.Raw.Address.Hex(), v.contractAddr.Hex(), txHash)
 			continue
 		}
