@@ -89,7 +89,17 @@ func (v *Voter) Init() (err error) {
 }
 
 func (v *Voter) StartReplenish(ctx context.Context) {
-	nextPolyHeight := v.conf.ForceConfig.PolyHeight
+	var nextPolyHeight uint64
+	if v.conf.ForceConfig.PolyHeight != 0 {
+		nextPolyHeight = v.conf.ForceConfig.PolyHeight
+	} else {
+		h, err := v.polySdk.GetCurrentBlockHeight()
+		if err != nil {
+			panic(fmt.Sprintf("v.polySdk.GetCurrentBlockHeight failed:%v", err))
+		}
+		nextPolyHeight = uint64(h)
+		log.Infof("start from current poly height:%d", h)
+	}
 	ticker := time.NewTicker(time.Second * 1)
 	for {
 		select {

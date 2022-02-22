@@ -7,7 +7,7 @@ require (
 	github.com/ethereum/go-ethereum v1.9.15
 	github.com/howeyc/gopass v0.0.0-20190910152052-7cb4b85ec19c
 	github.com/polynetwork/eth-contracts v0.0.0-20200814062128-70f58e22b014
-	github.com/polynetwork/poly v1.8.3-0.20220126074829-cbad4f404106
+	github.com/polynetwork/poly v1.8.3
 	github.com/polynetwork/poly-go-sdk v0.0.0-20210114120411-3dcba035134f
 )
 
@@ -78,7 +78,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/tsdb v0.7.1 // indirect
-	github.com/renlulu/gozilliqa-sdklegacy v0.0.0-20210926114807-88a08c5ab803 // indirect
+	github.com/renlulu/gozilliqa-sdklegacy v0.0.0-20220127085552-852a2675dc93 // indirect
 	github.com/rjeczalik/notify v0.9.1 // indirect
 	github.com/sasha-s/go-deadlock v0.2.1-0.20190427202633-1595213edefa // indirect
 	github.com/shirou/gopsutil v2.20.5-0.20200531151128-663af789c085+incompatible // indirect
