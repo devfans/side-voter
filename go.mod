@@ -5,7 +5,6 @@ go 1.17
 require (
 	github.com/boltdb/bolt v1.3.1
 	github.com/ethereum/go-ethereum v1.9.15
-	github.com/howeyc/gopass v0.0.0-20190910152052-7cb4b85ec19c
 	github.com/polynetwork/eth-contracts v0.0.0-20200814062128-70f58e22b014
 	github.com/polynetwork/poly v1.8.3
 	github.com/polynetwork/poly-go-sdk v0.0.0-20210114120411-3dcba035134f
@@ -102,7 +101,6 @@ require (
 	golang.org/x/crypto v0.0.0-20210322153248-0c34fe9e7dc2 // indirect
 	golang.org/x/net v0.0.0-20210903162142-ad29c8ab022f // indirect
 	golang.org/x/sys v0.0.0-20210903071746-97244b99971b // indirect
-	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1 // indirect
 	golang.org/x/text v0.3.6 // indirect
 	google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013 // indirect
 	google.golang.org/grpc v1.37.0 // indirect
