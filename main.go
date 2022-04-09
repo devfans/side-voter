@@ -22,11 +22,9 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"os/signal"
 	"syscall"
 
-	"github.com/howeyc/gopass"
 	sdk "github.com/polynetwork/poly-go-sdk"
 	"github.com/polynetwork/side-voter/config"
 	"github.com/polynetwork/side-voter/pkg/log"
@@ -64,35 +62,7 @@ func main() {
 		conf.ForceConfig.SideHeight = sideHeight
 	}
 
-	polySdk := sdk.NewPolySdk()
-	err = setUpPoly(polySdk, conf.PolyConfig.RestURL)
-	if err != nil {
-		log.Fatalf("setUpPoly failed: %v", err)
-		return
-	}
-	wallet, err := polySdk.OpenWallet(conf.PolyConfig.WalletFile)
-	if err != nil {
-		log.Fatalf("polySdk.OpenWallet failed: %v", err)
-		return
-	}
-	pass := []byte(conf.PolyConfig.WalletPwd)
-	if len(pass) == 0 {
-		fmt.Print("Enter Password: ")
-		pass, err = gopass.GetPasswd()
-		if err != nil {
-			log.Fatalf("gopass.GetPasswd failed: %v", err)
-			return
-		}
-	}
-
-	signer, err := wallet.GetDefaultAccount(pass)
-	if err != nil {
-		log.Fatalf("wallet.GetDefaultAccount failed: %v", err)
-		return
-	}
-
-	log.Infof("voter %s", signer.Address.ToBase58())
-	v := voter.New(polySdk, signer, conf)
+	v := voter.New(conf)
 	err = v.Init()
 	if err != nil {
 		log.Fatalf("Voter.init failed: %v", err)
@@ -101,6 +71,5 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	go v.StartReplenish(ctx)
 	v.StartVoter(ctx)
 }
