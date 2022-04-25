@@ -31,7 +31,9 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 const (
@@ -67,6 +69,7 @@ var (
 		TraceLog: Color(Pink, "[TRACE]"),
 	}
 	Stdout = os.Stdout
+	PATH   = "./Log/"
 )
 
 const (
@@ -74,7 +77,6 @@ const (
 	CALL_DEPTH           = 2
 	DEFAULT_MAX_LOG_SIZE = 20
 	BYTE_TO_MB           = 1024 * 1024
-	PATH                 = "./logoutput/"
 )
 
 func GetGID() uint64 {
@@ -86,7 +88,19 @@ func GetGID() uint64 {
 	return n
 }
 
-var Log *Logger
+var globalLogger unsafe.Pointer
+
+func Log() *Logger {
+	logger := atomic.LoadPointer(&globalLogger)
+
+	return (*Logger)(logger)
+}
+
+func swapGlobalLogger(logger *Logger) *Logger {
+	old := atomic.SwapPointer(&globalLogger, unsafe.Pointer(logger))
+
+	return (*Logger)(old)
+}
 
 func init() {
 	//Default print to console
@@ -98,19 +112,6 @@ func LevelName(level int) string {
 		return name
 	}
 	return NAME_PREFIX + strconv.Itoa(level)
-}
-
-func NameLevel(name string) int {
-	for k, v := range levels {
-		if v == name {
-			return k
-		}
-	}
-	var level int
-	if strings.HasPrefix(name, NAME_PREFIX) {
-		level, _ = strconv.Atoi(name[len(NAME_PREFIX):])
-	}
-	return level
 }
 
 type Logger struct {
@@ -129,7 +130,7 @@ func New(out io.Writer, prefix string, flag, level int, file *os.File) *Logger {
 
 func (l *Logger) SetDebugLevel(level int) error {
 	if level > MaxLevelLog || level < 0 {
-		return errors.New("Invalid Debug Level")
+		return errors.New("invalid Debug Level")
 	}
 
 	l.level = level
@@ -161,55 +162,55 @@ func (l *Logger) Outputf(level int, format string, v ...interface{}) error {
 }
 
 func (l *Logger) Trace(a ...interface{}) {
-	l.Output(TraceLog, a...)
+	_ = l.Output(TraceLog, a...)
 }
 
 func (l *Logger) Tracef(format string, a ...interface{}) {
-	l.Outputf(TraceLog, format, a...)
+	_ = l.Outputf(TraceLog, format, a...)
 }
 
 func (l *Logger) Debug(a ...interface{}) {
-	l.Output(DebugLog, a...)
+	_ = l.Output(DebugLog, a...)
 }
 
 func (l *Logger) Debugf(format string, a ...interface{}) {
-	l.Outputf(DebugLog, format, a...)
+	_ = l.Outputf(DebugLog, format, a...)
 }
 
 func (l *Logger) Info(a ...interface{}) {
-	l.Output(InfoLog, a...)
+	_ = l.Output(InfoLog, a...)
 }
 
 func (l *Logger) Infof(format string, a ...interface{}) {
-	l.Outputf(InfoLog, format, a...)
+	_ = l.Outputf(InfoLog, format, a...)
 }
 
 func (l *Logger) Warn(a ...interface{}) {
-	l.Output(WarnLog, a...)
+	_ = l.Output(WarnLog, a...)
 }
 
 func (l *Logger) Warnf(format string, a ...interface{}) {
-	l.Outputf(WarnLog, format, a...)
+	_ = l.Outputf(WarnLog, format, a...)
 }
 
 func (l *Logger) Error(a ...interface{}) {
-	l.Output(ErrorLog, a...)
+	_ = l.Output(ErrorLog, a...)
 }
 
 func (l *Logger) Errorf(format string, a ...interface{}) {
-	l.Outputf(ErrorLog, format, a...)
+	_ = l.Outputf(ErrorLog, format, a...)
 }
 
 func (l *Logger) Fatal(a ...interface{}) {
-	l.Output(FatalLog, a...)
+	_ = l.Output(FatalLog, a...)
 }
 
 func (l *Logger) Fatalf(format string, a ...interface{}) {
-	l.Outputf(FatalLog, format, a...)
+	_ = l.Outputf(FatalLog, format, a...)
 }
 
 func Trace(a ...interface{}) {
-	if TraceLog < Log.level {
+	if TraceLog < Log().level {
 		return
 	}
 
@@ -225,11 +226,11 @@ func Trace(a ...interface{}) {
 
 	a = append([]interface{}{funcName + "()", fileName + ":" + strconv.Itoa(line)}, a...)
 
-	Log.Trace(a...)
+	Log().Trace(a...)
 }
 
 func Tracef(format string, a ...interface{}) {
-	if TraceLog < Log.level {
+	if TraceLog < Log().level {
 		return
 	}
 
@@ -245,11 +246,11 @@ func Tracef(format string, a ...interface{}) {
 
 	a = append([]interface{}{funcName, fileName, line}, a...)
 
-	Log.Tracef("%s() %s:%d "+format, a...)
+	Log().Tracef("%s() %s:%d "+format, a...)
 }
 
 func Debug(a ...interface{}) {
-	if DebugLog < Log.level {
+	if DebugLog < Log().level {
 		return
 	}
 
@@ -261,11 +262,11 @@ func Debug(a ...interface{}) {
 
 	a = append([]interface{}{f.Name(), fileName + ":" + strconv.Itoa(line)}, a...)
 
-	Log.Debug(a...)
+	Log().Debug(a...)
 }
 
 func Debugf(format string, a ...interface{}) {
-	if DebugLog < Log.level {
+	if DebugLog < Log().level {
 		return
 	}
 
@@ -277,42 +278,44 @@ func Debugf(format string, a ...interface{}) {
 
 	a = append([]interface{}{f.Name(), fileName, line}, a...)
 
-	Log.Debugf("%s %s:%d "+format, a...)
+	Log().Debugf("%s %s:%d "+format, a...)
 }
 
 func Info(a ...interface{}) {
-	Log.Info(a...)
+	Log().Info(a...)
 }
 
 func Warn(a ...interface{}) {
-	Log.Warn(a...)
+	Log().Warn(a...)
 }
 
 func Error(a ...interface{}) {
-	Log.Error(a...)
+	Log().Error(a...)
 }
 
 func Fatal(a ...interface{}) {
-	Log.Fatal(a...)
-	os.Exit(1)
+	Log().Fatal(a...)
 }
 
 func Infof(format string, a ...interface{}) {
-	Log.Infof(format, a...)
+	Log().Infof(format, a...)
 }
 
 func Warnf(format string, a ...interface{}) {
-	Log.Warnf(format, a...)
+	Log().Warnf(format, a...)
 }
 
 func Errorf(format string, a ...interface{}) {
-	Log.Errorf(format, a...)
+	Log().Errorf(format, a...)
 }
 
 func Fatalf(format string, a ...interface{}) {
-	Log.Fatalf(format, a...)
-	os.Exit(1)
+	Log().Fatalf(format, a...)
 }
+
+// used for develop stage and not allowed in production enforced by CI
+var Test = Fatal
+var Testf = Fatalf
 
 func FileOpen(path string) (*os.File, error) {
 	if fi, err := os.Stat(path); err == nil {
@@ -342,8 +345,8 @@ func Init(a ...interface{}) {
 	InitLog(InfoLog, a...)
 }
 
-func InitLog(logLevel int, a ...interface{}) {
-	writers := []io.Writer{}
+func createLog(logLevel int, a ...interface{}) *Logger {
+	var writers []io.Writer
 	var logFile *os.File
 	var err error
 	if len(a) == 0 {
@@ -352,6 +355,10 @@ func InitLog(logLevel int, a ...interface{}) {
 		for _, o := range a {
 			switch o.(type) {
 			case string:
+				if logFile != nil {
+					fmt.Println("warn: only support one log file")
+					continue
+				}
 				logFile, err = FileOpen(o.(string))
 				if err != nil {
 					fmt.Println("error: open log file failed")
@@ -367,11 +374,23 @@ func InitLog(logLevel int, a ...interface{}) {
 		}
 	}
 	fileAndStdoutWrite := io.MultiWriter(writers...)
-	Log = New(fileAndStdoutWrite, "", log.Ldate|log.Lmicroseconds, logLevel, logFile)
+
+	logger := New(fileAndStdoutWrite, "", log.LUTC|log.Ldate|log.Lmicroseconds, logLevel, logFile)
+
+	return logger
+}
+
+func InitLog(logLevel int, a ...interface{}) {
+	logger := createLog(logLevel, a...)
+
+	old := swapGlobalLogger(logger)
+	if old != nil {
+		_ = old.logFile.Close()
+	}
 }
 
 func GetLogFileSize() (int64, error) {
-	f, e := Log.logFile.Stat()
+	f, e := Log().logFile.Stat()
 	if e != nil {
 		return 0, e
 	}
@@ -380,13 +399,13 @@ func GetLogFileSize() (int64, error) {
 
 func GetMaxLogChangeInterval(maxLogSize int64) int64 {
 	if maxLogSize != 0 {
-		return (maxLogSize * BYTE_TO_MB)
+		return maxLogSize * BYTE_TO_MB
 	} else {
-		return (DEFAULT_MAX_LOG_SIZE * BYTE_TO_MB)
+		return DEFAULT_MAX_LOG_SIZE * BYTE_TO_MB
 	}
 }
 
-func CheckIfNeedNewFile() bool {
+func checkIfNeedNewFile() bool {
 	logFileSize, err := GetLogFileSize()
 	maxLogFileSize := GetMaxLogChangeInterval(0)
 	if err != nil {
@@ -401,8 +420,18 @@ func CheckIfNeedNewFile() bool {
 
 func ClosePrintLog() error {
 	var err error
-	if Log.logFile != nil {
-		err = Log.logFile.Close()
+	if Log().logFile != nil {
+		err = Log().logFile.Close()
 	}
 	return err
+}
+
+func CheckRotateLogFile() {
+	isNeedNewFile := checkIfNeedNewFile()
+	if isNeedNewFile {
+		old := swapGlobalLogger(createLog(Log().level, PATH, Stdout))
+		if old.logFile != nil {
+			_ = old.logFile.Close()
+		}
+	}
 }
