@@ -228,6 +228,12 @@ func (v *Voter) fetchLockDepositEventByTxHash(txHash string) error {
 		return err
 	}
 	height := reciept.BlockNumber.Uint64()
+	latestHeight, err := ethGetCurrentHeight(v.conf.SideConfig.RestURL[v.idx])
+	if err != nil { return err }
+	if height + v.conf.SideConfig.BlocksToWait > latestHeight {
+		return fmt.Errorf("transaction is not confirmed yet %s", txHash)
+	}
+
 
 	for _, l := range reciept.Logs {
 		evt, err := contract.ParseCrossChainEvent(*l)
