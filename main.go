@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/howeyc/gopass"
 	sdk "github.com/polynetwork/poly-go-sdk"
@@ -101,6 +102,18 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go checkLogFile()
 	go v.StartReplenish(ctx)
 	v.StartVoter(ctx)
+}
+
+func checkLogFile() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			log.CheckRotateLogFile()
+		}
+	}
 }

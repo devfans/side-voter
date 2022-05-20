@@ -175,7 +175,6 @@ func (v *Voter) StartVoter(ctx context.Context) {
 				continue
 			}
 			log.Infof("current side height:%d", height)
-			log.CheckRotateLogFile()
 			if height < nextSideHeight+v.conf.SideConfig.BlocksToWait+1 {
 				continue
 			}
