@@ -22,9 +22,9 @@ package db
 import (
 	"encoding/binary"
 	"errors"
-	"path"
-
 	"github.com/boltdb/bolt"
+	"os"
+	"path"
 )
 
 type BoltDB struct {
@@ -41,6 +41,16 @@ func NewBoltDB(dir string) (bdb *BoltDB, err error) {
 		return
 	}
 	filePath := path.Join(dir, "bolt.bin")
+	exist, err := PathExists(dir)
+	if err != nil {
+		return
+	}
+	if !exist {
+		err = os.Mkdir(dir, os.ModePerm)
+		if err != nil {
+			return
+		}
+	}
 	db, err := bolt.Open(filePath, 0644, &bolt.Options{InitialMmapSize: 500000})
 	if err != nil {
 		return
@@ -86,4 +96,15 @@ func (w *BoltDB) GetSideHeight() uint64 {
 
 func (w *BoltDB) Close() {
 	w.db.Close()
+}
+
+func PathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }
