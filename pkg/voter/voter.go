@@ -175,11 +175,11 @@ func (v *Voter) StartVoter(ctx context.Context) {
 				continue
 			}
 			log.Infof("current side height:%d", height)
-			if height < nextSideHeight+v.conf.SideConfig.BlocksToWait+1 {
+			if height < nextSideHeight+v.conf.SideConfig.BlocksToWait+v.conf.SideConfig.Batch+1 {
 				continue
 			}
 
-			for nextSideHeight < height-v.conf.SideConfig.BlocksToWait-1 {
+			for nextSideHeight < height-v.conf.SideConfig.BlocksToWait-v.conf.SideConfig.Batch-1 {
 				select {
 				case <-ctx.Done():
 					return
@@ -192,7 +192,7 @@ func (v *Voter) StartVoter(ctx context.Context) {
 					sleep()
 					continue
 				}
-				nextSideHeight++
+				nextSideHeight = nextSideHeight + v.conf.SideConfig.Batch + 1
 			}
 
 			err = v.bdb.UpdateSideHeight(nextSideHeight)
@@ -228,11 +228,12 @@ func (v *Voter) fetchLockDepositEventByTxHash(txHash string) error {
 	}
 	height := reciept.BlockNumber.Uint64()
 	latestHeight, err := ethGetCurrentHeight(v.conf.SideConfig.RestURL[v.idx])
-	if err != nil { return err }
-	if height + v.conf.SideConfig.BlocksToWait > latestHeight {
+	if err != nil {
+		return err
+	}
+	if height+v.conf.SideConfig.BlocksToWait > latestHeight {
 		return fmt.Errorf("transaction is not confirmed yet %s", txHash)
 	}
-
 
 	for _, l := range reciept.Logs {
 		evt, err := contract.ParseCrossChainEvent(*l)
@@ -279,10 +280,10 @@ func (v *Voter) fetchLockDepositEventByTxHash(txHash string) error {
 
 func (v *Voter) fetchLockDepositEvents(height uint64) error {
 	contract := v.contracts[v.idx]
-
+	end := height + v.conf.SideConfig.Batch
 	opt := &bind.FilterOpts{
 		Start:   height,
-		End:     &height,
+		End:     &end,
 		Context: context.Background(),
 	}
 	events, err := contract.FilterCrossChainEvent(opt, nil)
