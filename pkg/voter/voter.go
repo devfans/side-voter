@@ -36,9 +36,9 @@ import (
 	"github.com/polynetwork/poly/common"
 	common2 "github.com/polynetwork/poly/native/service/cross_chain_manager/common"
 	autils "github.com/polynetwork/poly/native/service/utils"
+	"github.com/polynetwork/side-voter/abi"
 	"github.com/polynetwork/side-voter/config"
 	"github.com/polynetwork/side-voter/pkg/db"
-	"github.com/polynetwork/side-voter/abi"
 	"github.com/polynetwork/side-voter/pkg/log"
 )
 
@@ -178,7 +178,7 @@ func (v *Voter) StartVoter(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			v.idx = randIdx(len(v.clients))
-			height, err := ethGetCurrentHeight(v.l1)
+			height, err := v.getCurrentHeight()
 			if err != nil {
 				log.Errorf("ethGetCurrentHeight failed:%v", err)
 				continue
@@ -236,7 +236,7 @@ func (v *Voter) fetchLockDepositEventByTxHash(txHash string) error {
 		return err
 	}
 	height := reciept.BlockNumber.Uint64()
-	latestHeight, err := ethGetCurrentHeight(v.l1)
+	latestHeight, err := v.getCurrentHeight()
 	if err != nil {
 		return err
 	}
@@ -385,6 +385,19 @@ func (v *Voter) waitTx(txHash string) (err error) {
 		}
 		return
 	}
+}
+
+func (v *Voter) getCurrentHeight() (height uint64, err error) {
+	latest , err := ethGetCurrentHeight(v.conf.SideConfig.L1URL)
+	if err != nil { return }
+	h := latest - v.conf.SideConfig.BlocksToWait
+	if h >= latest {
+		panic("unexpected height calculation or blocks to wait too small")
+	}
+	n, err := v.l1.GetTotalBlocksExecuted(&bind.CallOpts{BlockNumber: big.NewInt(int64(h))})
+	if err != nil { return }
+	height = uint64(n)
+	return
 }
 
 func sleep() {
