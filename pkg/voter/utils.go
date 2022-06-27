@@ -21,11 +21,10 @@ package voter
 
 import (
 	"encoding/hex"
-	"encoding/json"
+	"github.com/polynetwork/side-voter/abi"
 	"io/ioutil"
 	"math/big"
 	"net/http"
-	"strconv"
 	"strings"
 )
 
@@ -42,31 +41,9 @@ type heightRep struct {
 	ID      uint   `json:"id"`
 }
 
-func ethGetCurrentHeight(url string) (height uint64, err error) {
-	req := &heightReq{
-		JSONRPC: "2.0",
-		Method:  "eth_blockNumber",
-		Params:  make([]string, 0),
-		ID:      1,
-	}
-	data, _ := json.Marshal(req)
-
-	body, err := jsonRequest(url, data)
-	if err != nil {
-		return
-	}
-
-	var resp heightRep
-	err = json.Unmarshal(body, &resp)
-	if err != nil {
-		return
-	}
-
-	height, err = strconv.ParseUint(resp.Result, 0, 64)
-	if err != nil {
-		return
-	}
-
+func ethGetCurrentHeight(getter *abi.IGetters) (height uint64, err error) {
+	h, err := getter.GetTotalBlocksExecuted(nil)
+	if err == nil { height = uint64(h) }
 	return
 }
 

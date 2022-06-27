@@ -38,6 +38,7 @@ import (
 	autils "github.com/polynetwork/poly/native/service/utils"
 	"github.com/polynetwork/side-voter/config"
 	"github.com/polynetwork/side-voter/pkg/db"
+	"github.com/polynetwork/side-voter/abi"
 	"github.com/polynetwork/side-voter/pkg/log"
 )
 
@@ -50,6 +51,7 @@ type Voter struct {
 	contracts    []*eccm_abi.EthCrossChainManager
 	contractAddr ethcommon.Address
 	idx          int
+	l1           *abi.IGetters
 }
 
 func New(polySdk *sdk.PolySdk, signer *sdk.Account, conf *config.Config) *Voter {
@@ -85,6 +87,13 @@ func (v *Voter) Init() (err error) {
 		v.contracts[i] = contract
 	}
 
+	c, err := ethclient.Dial(v.conf.SideConfig.L1URL)
+	if err != nil { return }
+	if len(v.conf.SideConfig.L1Contract) == 0 {
+		err = fmt.Errorf("l1 contract not specified")
+		return
+	}
+	v.l1, err = abi.NewIGetters(ethcommon.HexToAddress(v.conf.SideConfig.L1Contract), c)
 	return
 }
 
@@ -169,7 +178,7 @@ func (v *Voter) StartVoter(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			v.idx = randIdx(len(v.clients))
-			height, err := ethGetCurrentHeight(v.conf.SideConfig.RestURL[v.idx])
+			height, err := ethGetCurrentHeight(v.l1)
 			if err != nil {
 				log.Errorf("ethGetCurrentHeight failed:%v", err)
 				continue
@@ -227,7 +236,7 @@ func (v *Voter) fetchLockDepositEventByTxHash(txHash string) error {
 		return err
 	}
 	height := reciept.BlockNumber.Uint64()
-	latestHeight, err := ethGetCurrentHeight(v.conf.SideConfig.RestURL[v.idx])
+	latestHeight, err := ethGetCurrentHeight(v.l1)
 	if err != nil {
 		return err
 	}
