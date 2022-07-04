@@ -388,6 +388,7 @@ func (v *Voter) changeEndpoint() {
 	} else {
 		v.idx = v.idx + 1
 	}
+	log.Infof("change endpoint to %d", v.idx)
 }
 
 func sleep() {
