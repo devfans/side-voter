@@ -150,6 +150,8 @@ func (v *Voter) StartReplenish(ctx context.Context) {
 					err = v.fetchLockDepositEventByTxHash(txHash.(string))
 					if err != nil {
 						log.Errorf("fetchLockDepositEventByTxHash failed:%v", err)
+						//change endpoint and retry, mutex is not used
+						v.idx = randIdx(len(v.clients))
 						continue
 					}
 				}
@@ -168,10 +170,10 @@ func (v *Voter) StartVoter(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			v.idx = randIdx(len(v.clients))
 			height, err := ethGetCurrentHeight(v.conf.SideConfig.RestURL[v.idx])
 			if err != nil {
 				log.Errorf("ethGetCurrentHeight failed:%v", err)
+				v.changeEndpoint()
 				continue
 			}
 			log.Infof("current side height:%d", height)
@@ -189,6 +191,7 @@ func (v *Voter) StartVoter(ctx context.Context) {
 				err = v.fetchLockDepositEvents(nextSideHeight)
 				if err != nil {
 					log.Errorf("fetchLockDepositEvents failed:%v", err)
+					v.changeEndpoint()
 					sleep()
 					continue
 				}
@@ -375,6 +378,15 @@ func (v *Voter) waitTx(txHash string) (err error) {
 			continue
 		}
 		return
+	}
+}
+
+//change endpoint and retry, mutex is not used
+func (v *Voter) changeEndpoint() {
+	if v.idx == len(v.clients)-1 {
+		v.idx = 0
+	} else {
+		v.idx = v.idx + 1
 	}
 }
 
