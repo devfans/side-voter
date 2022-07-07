@@ -88,7 +88,9 @@ func (v *Voter) Init() (err error) {
 	}
 
 	c, err := ethclient.Dial(v.conf.SideConfig.L1URL)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	if len(v.conf.SideConfig.L1Contract) == 0 {
 		err = fmt.Errorf("l1 contract not specified")
 		return
@@ -159,6 +161,8 @@ func (v *Voter) StartReplenish(ctx context.Context) {
 					err = v.fetchLockDepositEventByTxHash(txHash.(string))
 					if err != nil {
 						log.Errorf("fetchLockDepositEventByTxHash failed:%v", err)
+						//change endpoint and retry, mutex is not used
+						v.idx = randIdx(len(v.clients))
 						continue
 					}
 				}
@@ -177,10 +181,10 @@ func (v *Voter) StartVoter(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			v.idx = randIdx(len(v.clients))
 			height, err := v.getCurrentHeight()
 			if err != nil {
 				log.Errorf("ethGetCurrentHeight failed:%v", err)
+				v.changeEndpoint()
 				continue
 			}
 			log.Infof("current side height:%d", height)
@@ -198,6 +202,7 @@ func (v *Voter) StartVoter(ctx context.Context) {
 				err = v.fetchLockDepositEvents(nextSideHeight)
 				if err != nil {
 					log.Errorf("fetchLockDepositEvents failed:%v", err)
+					v.changeEndpoint()
 					sleep()
 					continue
 				}
@@ -388,16 +393,30 @@ func (v *Voter) waitTx(txHash string) (err error) {
 }
 
 func (v *Voter) getCurrentHeight() (height uint64, err error) {
-	latest , err := ethGetCurrentHeight(v.conf.SideConfig.L1URL)
-	if err != nil { return }
+	latest, err := ethGetCurrentHeight(v.conf.SideConfig.L1URL)
+	if err != nil {
+		return
+	}
 	h := latest - v.conf.SideConfig.BlocksToWait
 	if h >= latest {
 		panic("unexpected height calculation or blocks to wait too small")
 	}
 	n, err := v.l1.GetTotalBlocksExecuted(&bind.CallOpts{BlockNumber: big.NewInt(int64(h))})
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	height = uint64(n)
 	return
+}
+
+//change endpoint and retry, mutex is not used
+func (v *Voter) changeEndpoint() {
+	if v.idx == len(v.clients)-1 {
+		v.idx = 0
+	} else {
+		v.idx = v.idx + 1
+	}
+	log.Infof("change endpoint to %d", v.idx)
 }
 
 func sleep() {
